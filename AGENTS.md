@@ -11,6 +11,7 @@ App de escritorio construida con:
 - **Estilos:** Tailwind CSS
 - **Backend de datos:** Supabase autoalojado en un VPS (Postgres, Auth, Realtime, Storage)
 - **Arquitectura:** Hexagonal (Ports & Adapters) + Domain-Driven Design (DDD)
+- **Arquitectura de UI (`presentation`):** Atomic Design (`atoms`, `molecules`, `organisms`, `templates`, `screens`) + patrón **MVVM** (`model`, `view`, `viewModel`) en cada `screen`
 - **Patrón táctico central:** Value Objects con clases base abstractas
 
 Principio rector: **el dominio no sabe nada de SolidJS, Tauri, Supabase, el DOM ni el sistema de archivos.** Cada capa contiene únicamente la lógica que le corresponde y nada más.
@@ -85,7 +86,7 @@ infrastructure┘
 | `domain` | Entidades, Value Objects, Agregados, eventos de dominio, servicios de dominio, **interfaces** de repositorio | `domain`, `shared/kernel` | `solid-js`, `@tauri-apps/*`, `@supabase/*`, `application`, `infrastructure`, `presentation` |
 | `application` | Casos de uso, **commands**, puertos adicionales, orquestación | `domain`, `shared/kernel` | `solid-js`, `@tauri-apps/*`, `@supabase/*`, `infrastructure`, `presentation` |
 | `infrastructure` | Adaptadores que **implementan** puertos: Supabase, Tauri IPC, almacenamiento seguro, mappers | `domain`, `application`, librerías externas | `presentation` |
-| `presentation` | Componentes SolidJS, páginas, estado de UI | `application` (casos de uso inyectados), tipos/VO de lectura de `domain` | `infrastructure` |
+| `presentation` | Componentes SolidJS bajo **Atomic Design** (`atoms`, `molecules`, `organisms`, `templates`), pantallas (`screens` con **MVVM**: `model`, `view`, `viewModel`), estado de UI | `application` (casos de uso inyectados), `shared/ui`, tipos primitivos de lectura | `infrastructure` |
 
 Reglas de aislamiento:
 
@@ -135,12 +136,24 @@ src/
 │       │   ├── tauri/            # Adaptadores IPC
 │       │   └── mappers/          # fila/payload externo ⇄ dominio
 │       └── presentation/
-│           ├── components/
-│           ├── pages/
+│           ├── atoms/
+│           ├── molecules/
+│           ├── organisms/
+│           ├── templates/
+│           ├── screens/          # Reemplaza a "pages"; cada pantalla implementa MVVM
+│           │   └── <screen-name>/
+│           │       ├── <screen-name>.model.ts       # Tipos, contratos de UI y del ViewModel
+│           │       ├── <screen-name>.view-model.ts  # Hook (use<Screen>) con estado reactivo y casos de uso
+│           │       ├── <screen-name>.view.tsx       # Vista declarativa de la pantalla
+│           │       └── index.ts
 │           └── state/
 └── shared/
     ├── kernel/                   # value-object/ (ValueObject, StringValueObject, NumberValueObject, EnumValueObject, Uuid), AggregateRoot, DomainEvent, InvalidArgumentError
-    └── ui/                       # Componentes visuales genéricos sin lógica de negocio
+    └── ui/                       # Design system transversal bajo Atomic Design (sin lógica de negocio)
+        ├── atoms/
+        ├── molecules/
+        ├── organisms/
+        └── templates/
 ```
 
 ### 3.3 Estructura en Rust (`src-tauri`)
@@ -403,17 +416,198 @@ Supabase es un **detalle de infraestructura**. Solo existe dentro de `infrastruc
 
 ---
 
-## 6. SolidJS
+## 6. Presentación: SolidJS, Atomic Design y MVVM
+
+### 6.1 Reglas de SolidJS
 
 1. **No desestructurar props** (rompe la reactividad): usa `props.x`, `splitProps` o `mergeProps`.
 2. Solid **no es React**: los componentes se ejecutan una sola vez. No usar patrones de React (`useEffect`, `useMemo`, arrays de dependencias).
 3. `createSignal`, `createMemo`, `createEffect`, `createResource`, `createStore` según corresponda. Valores derivados con `createMemo`; no uses `createEffect` para sincronizar estado.
 4. Control de flujo con `<Show>`, `<For>`, `<Switch>/<Match>`, `<Index>`; no `.map()` ni ternarios largos en JSX para listas/condiciones complejas.
-5. Los componentes **no instancian adaptadores**: reciben casos de uso mediante `createContext`, provisto desde `app/`.
-6. Separa componentes contenedores (conectan con casos de uso) de presentacionales (solo props).
-7. Limpia listeners, timers, suscripciones Realtime y eventos de Tauri con `onCleanup`.
-8. El estado de UI vive en `presentation/state`; el estado de negocio vive en el dominio y se obtiene vía casos de uso.
-9. La UI envía **commands** a los casos de uso y consume primitivos tipados (`toPrimitives()`), nunca entidades ni agregados.
+5. Los componentes **no instancian adaptadores**: los casos de uso se inyectan mediante `createContext`, provisto desde `app/`, y son consumidos únicamente por el `viewModel` de cada `screen`.
+6. Limpia listeners, timers, suscripciones Realtime y eventos de Tauri con `onCleanup`.
+7. El estado transversal de UI vive en `presentation/state`; el estado y orquestación de cada pantalla vive en su `viewModel`; el estado de negocio vive en el dominio y se obtiene vía casos de uso.
+8. La UI envía **commands** a los casos de uso y consume primitivos tipados (`toPrimitives()`), nunca entidades ni agregados.
+
+### 6.2 Atomic Design (`atoms`, `molecules`, `organisms`, `templates`, `screens`)
+
+La creación de interfaces y pantallas sigue **Atomic Design**, reemplazando el término `pages` por **`screens`** (en aplicaciones de escritorio cada vista completa es una pantalla, no una página web).
+
+| Nivel | Carpeta | Responsabilidad | Estado permitido / Dependencias |
+|-------|---------|-----------------|---------------------------------|
+| **Atoms** | `atoms/` | Unidades visuales mínimas e indivisibles (`Button`, `Input`, `Badge`, `Icon`, `Label`). | Solo props visuales y eventos básicos. Sin estado de negocio ni casos de uso. |
+| **Molecules** | `molecules/` | Combinación simple de átomos con un propósito funcional único de UI (`SearchField`, `FormField`, `StatCard`). | Puramente presentacionales (dirigidos por props). Compuestos de `atoms`. |
+| **Organisms** | `organisms/` | Secciones completas de interfaz con significado funcional (`TaskHeader`, `TaskFilterBar`, `TaskTable`, `ClientForm`). | Pueden tener estado estrictamente visual local (ej. abrir/cerrar un menú), pero **no invocan casos de uso**: reciben datos y callbacks por props. Compuestos de `atoms` y `molecules`. |
+| **Templates** | `templates/` | Estructuras de layout y distribución espacial (`DashboardTemplate`, `SplitPaneTemplate`, `ModalTemplate`). | Reciben regiones/slots (`JSX.Element` / `children`) por props. Sin datos reales ni llamadas a casos de uso. |
+| **Screens** | `screens/` | Nivel final (**reemplaza a `pages`**). Conecta un `template` y sus `organisms`/`molecules`/`atoms` con los datos y casos de uso mediante el patrón **MVVM**. | Único nivel autorizado para consumir casos de uso a través de su `viewModel`. |
+
+Reglas de distribución y composición:
+
+1. **Prohibido usar `pages`:** Tanto en nombres de carpetas como de componentes o rutas internas de módulo se usa siempre **`screens`** (`presentation/screens/<screen-name>/`).
+2. **Doble alcance (`shared/ui` vs `modules/<bounded-context>/presentation`):**
+   - `src/shared/ui/{atoms,molecules,organisms,templates}`: componentes genéricos del Design System reutilizables entre módulos y agnósticos al dominio.
+   - `src/modules/<bounded-context>/presentation/{atoms,molecules,organisms,templates,screens}`: componentes específicos del bounded context y las pantallas (`screens`) del módulo.
+3. **Jerarquía estricta de importación:** El flujo de composición es siempre ascendente (`atoms` → `molecules` → `organisms` → `templates` → `screens`). Un nivel inferior **jamás** importa de un nivel superior (por ejemplo, un `molecule` no puede importar un `organism` ni una `screen`).
+
+### 6.3 Patrón MVVM dentro de `screens/`
+
+Cada pantalla dentro de `presentation/screens/<screen-name>/` se divide obligatoriamente en tres responsabilidades bajo el patrón **MVVM (Model – View – ViewModel)**:
+
+```
+presentation/screens/<screen-name>/
+├── <screen-name>.model.ts       # Model: tipos, contratos de UI y del ViewModel
+├── <screen-name>.view-model.ts  # ViewModel: hook (use<Screen>) con estado reactivo y casos de uso
+├── <screen-name>.view.tsx       # View: componente visual de la pantalla (Templates + Organisms)
+└── index.ts                     # API pública de la pantalla
+```
+
+1. **`model` (`<screen-name>.model.ts`) — Tipos y contratos de la pantalla:**
+   - Contiene **únicamente definiciones de tipos** (`type`), estados de filtro/formulario de la vista, props y el contrato que expone el `viewModel` (`<Screen>ViewModel`).
+   - Puede importar tipos primitivos de lectura (`TaskPrimitives`) y commands (`CreateTaskCommand`, `CompleteTaskCommand`) desde `application`/`domain`, pero **nunca clases de dominio, entidades ni código ejecutable**.
+2. **`viewModel` (`<screen-name>.view-model.ts`) — Hook de la pantalla (`use<Screen>`):**
+   - Se implementa como una **función de flecha** con nombre `use<Screen>` (por ejemplo, `useTaskList` para `task-list`).
+   - Es el **único responsable** de:
+     - Obtener los casos de uso desde el contexto de inyección de dependencias.
+     - Declarar señales y estado reactivo de SolidJS (`createSignal`, `createMemo`, `createResource`, `createStore`, `onCleanup`).
+     - Construir y despachar `commands` hacia la capa `application` y traducir errores a estados legibles para la vista.
+   - Devuelve un objeto inmutable tipado con `<Screen>ViewModel` (accesores reactivos `Accessor<T>` y handlers de eventos). **Prohibido devolver JSX o manipular el DOM.**
+3. **`view` (`<screen-name>.view.tsx`) — Pantalla declarativa:**
+   - Componente SolidJS (`<Screen>Screen`, ej. `TaskListScreen`) escrito como función de flecha que consume el hook `use<Screen>()` (o recibe un `viewModel` opcional por props para facilitar tests de UI).
+   - Ensambla el `template` de la pantalla con sus `organisms`, `molecules` y `atoms`, conectándolos a las propiedades y acciones del `viewModel`.
+   - **Prohibido** instanciar señales de negocio, llamar a casos de uso o escribir lógica de transformación de datos dentro de `.view.tsx`.
+
+#### Ejemplo completo de una `screen` con MVVM
+
+```ts
+// modules/tasks/presentation/screens/task-list/task-list.model.ts
+import type { Accessor } from "solid-js";
+import type { TaskPrimitives } from "@/modules/tasks/domain";
+
+export type TaskFilter = "all" | "pending" | "done";
+
+export type TaskListViewModel = {
+  readonly tasks: Accessor<readonly TaskPrimitives[]>;
+  readonly isLoading: Accessor<boolean>;
+  readonly errorMessage: Accessor<string | null>;
+  readonly filter: Accessor<TaskFilter>;
+  readonly draftTitle: Accessor<string>;
+  readonly onFilterChange: (next: TaskFilter) => void;
+  readonly onDraftTitleChange: (value: string) => void;
+  readonly onCreateTask: () => Promise<void>;
+  readonly onCompleteTask: (taskId: string) => Promise<void>;
+};
+
+export type TaskListScreenProps = {
+  readonly viewModel?: TaskListViewModel;
+};
+```
+
+```ts
+// modules/tasks/presentation/screens/task-list/task-list.view-model.ts
+import { createMemo, createResource, createSignal } from "solid-js";
+import { useTasksUseCases } from "@/modules/tasks/presentation/state";
+import type { TaskFilter, TaskListViewModel } from "./task-list.model";
+
+export const useTaskList = (): TaskListViewModel => {
+  const useCases = useTasksUseCases();
+  const [filter, setFilter] = createSignal<TaskFilter>("all");
+  const [draftTitle, setDraftTitle] = createSignal("");
+  const [errorMessage, setErrorMessage] = createSignal<string | null>(null);
+
+  const [rawTasks, { refetch }] = createResource(async () => useCases.listTasks());
+
+  const tasks = createMemo(() => {
+    const list = rawTasks() ?? [];
+    const currentFilter = filter();
+    if (currentFilter === "all") return list;
+    return list.filter((task) => task.status === currentFilter);
+  });
+
+  const onCreateTask = async (): Promise<void> => {
+    setErrorMessage(null);
+    try {
+      await useCases.createTask({ title: draftTitle() });
+      setDraftTitle("");
+      await refetch();
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : "No se pudo crear la tarea");
+    }
+  };
+
+  const onCompleteTask = async (taskId: string): Promise<void> => {
+    setErrorMessage(null);
+    try {
+      await useCases.completeTask({ taskId });
+      await refetch();
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : "No se pudo completar la tarea");
+    }
+  };
+
+  return {
+    tasks,
+    isLoading: () => rawTasks.loading,
+    errorMessage,
+    filter,
+    draftTitle,
+    onFilterChange: setFilter,
+    onDraftTitleChange: setDraftTitle,
+    onCreateTask,
+    onCompleteTask,
+  };
+};
+```
+
+```tsx
+// modules/tasks/presentation/screens/task-list/task-list.view.tsx
+import { Show, type JSX } from "solid-js";
+import { AlertBanner } from "@/shared/ui/molecules";
+import { TaskListTemplate } from "@/modules/tasks/presentation/templates";
+import { TaskCreateBar, TaskFilterTabs, TaskTable } from "@/modules/tasks/presentation/organisms";
+import type { TaskListScreenProps } from "./task-list.model";
+import { useTaskList } from "./task-list.view-model";
+
+export const TaskListScreen = (props: TaskListScreenProps): JSX.Element => {
+  const vm = props.viewModel ?? useTaskList();
+
+  return (
+    <TaskListTemplate
+      header={
+        <TaskCreateBar
+          title={vm.draftTitle()}
+          onTitleChange={vm.onDraftTitleChange}
+          onSubmit={vm.onCreateTask}
+        />
+      }
+      filters={
+        <TaskFilterTabs
+          selected={vm.filter()}
+          onSelect={vm.onFilterChange}
+        />
+      }
+      content={
+        <>
+          <Show when={vm.errorMessage()}>
+            {(message) => <AlertBanner message={message()} />}
+          </Show>
+          <TaskTable
+            tasks={vm.tasks()}
+            isLoading={vm.isLoading()}
+            onComplete={vm.onCompleteTask}
+          />
+        </>
+      }
+    />
+  );
+};
+```
+
+```ts
+// modules/tasks/presentation/screens/task-list/index.ts
+export { TaskListScreen } from "./task-list.view";
+export { useTaskList } from "./task-list.view-model";
+export type { TaskFilter, TaskListScreenProps, TaskListViewModel } from "./task-list.model";
+```
 
 ---
 
@@ -448,8 +642,9 @@ Supabase es un **detalle de infraestructura**. Solo existe dentro de `infrastruc
 
 - **TypeScript `strict: true`**, sin `any`, sin `function`.
 - **Nombres:**
-  - Archivos: `kebab-case` (`create-task.use-case.ts`, `task-id.ts`, `supabase-task.repository.ts`).
-  - Componentes: `PascalCase`. Value Objects y entidades: `PascalCase`.
+  - Archivos: `kebab-case` (`create-task.use-case.ts`, `task-id.ts`, `supabase-task.repository.ts`, `task-list.model.ts`, `task-list.view-model.ts`, `task-list.view.tsx`).
+  - Componentes (`atoms`, `molecules`, `organisms`, `templates`, `screens`): `PascalCase` (`TaskListScreen`, `TaskTable`). Value Objects y entidades: `PascalCase`.
+  - Hooks de `viewModel` en `screens`: `use<Screen>` en `camelCase` (`useTaskList`).
   - Puertos: describen capacidad (`TaskRepository`, `AuthService`), sin prefijo `I`.
   - Eventos en pasado (`TaskCompleted`); casos de uso verbo + objeto (`CompleteTask`).
 - **Imports** con alias (`@/modules/...`); sin `../../../`.
@@ -488,7 +683,7 @@ export const completeTask =
 | Dominio | Entidades, Value Objects, agregados, servicios | Vitest / `cargo test` |
 | Aplicación | Casos de uso con repositorios en memoria | Vitest |
 | Integración | Adaptadores Supabase/Tauri contra su dependencia real o instancia local | Vitest / `cargo test` |
-| Componentes | Comportamiento visible de la UI | `@solidjs/testing-library` |
+| Presentación (`ViewModel` y `View`) | Estado reactivo de `use<Screen>` (`viewModel`) y comportamiento visual de `atoms`/`molecules`/`organisms`/`screens` (`view`) | Vitest + `@solidjs/testing-library` |
 | E2E | Flujos críticos en la app real | WebDriver / Playwright |
 
 Reglas:
@@ -526,6 +721,8 @@ Al terminar:
 - Usar `string` crudo como id dentro del dominio.
 - Importar `@tauri-apps/*`, `@supabase/*` o `solid-js` en `domain` o `application`.
 - Lógica de negocio en componentes, comandos de Tauri, adaptadores o políticas SQL.
+- Usar el término o carpeta `pages` en lugar de `screens`.
+- Invocar casos de uso en `atoms`, `molecules`, `organisms`, `templates` o directamente en `.view.tsx` (solo el `viewModel` mediante `use<Screen>` puede hacerlo).
 - Exponer entidades de dominio directamente a la UI (usar commands de entrada y primitivos tipados de salida).
 - Llamar a `invoke` o al cliente de Supabase fuera de `infrastructure`.
 - Incluir la clave `service_role` o secretos en el cliente.
@@ -548,15 +745,10 @@ Al terminar:
 - [ ] La lógica de negocio está en `domain`
 - [ ] Los ids son Value Objects que extienden de `Uuid`
 - [ ] Sin `any` y sin `function` (solo funciones de flecha)
+- [ ] La UI respeta Atomic Design (`atoms`, `molecules`, `organisms`, `templates`, `screens`) y MVVM (`model`, `view`, `viewModel` con `use<Screen>`)
 - [ ] Supabase/Tauri solo aparecen en `infrastructure`
 - [ ] Hay tests nuevos/actualizados y pasan
 - [ ] Lint, formato y type-check limpios (TS y Rust)
 - [ ] RLS y permisos de Tauri revisados
 - [ ] Sin dependencias nuevas sin justificar
 - [ ] Glosario/documentación actualizados si cambió el lenguaje del dominio
-
----
-
-## 14. Decisiones de arquitectura
-
-Las decisiones relevantes (nuevo bounded context, cambio de librería, nuevo patrón) se registran como **ADR** en `docs/adr/NNNN-titulo.md` con: contexto, decisión, alternativas y consecuencias.

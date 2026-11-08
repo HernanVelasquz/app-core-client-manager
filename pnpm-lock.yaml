@@ -17,6 +17,9 @@ importers:
       solid-js:
         specifier: ^1.9.3
         version: 1.9.18
+      uuid:
+        specifier: ^14.0.3
+        version: 14.0.3
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2
@@ -574,6 +577,10 @@ packages:
     peerDependencies:
       browserslist: '>= 4.21.0'
 
+  uuid@14.0.3:
+    resolution: {integrity: sha512-Sc5u1VVln93y1Xnz4R+CunOZc7R9LUcTmhj7Rc7Eg3HVcf7rVn2FOoa812fe0W8p3jD7xeoGSYbfqCGGH2B6xw==}
+    hasBin: true
+
   vite-plugin-solid@2.11.15:
     resolution: {integrity: sha512-twDNPdUDbhem+UOXVu5PyRJvwHFmxSJ3+NxbCgT9iFL42EmWS7lBfFskVM/HXLwd86fh1BgHKJBfGCWkTu2zEg==}
     peerDependencies:
@@ -1091,6 +1098,8 @@ snapshots:
       browserslist: 4.29.5
       escalade: 3.2.0
       picocolors: 1.1.1
+
+  uuid@14.0.3: {}
 
   vite-plugin-solid@2.11.15(solid-js@1.9.18)(vite@8.3.6):
     dependencies:
