@@ -21,28 +21,44 @@ Principio rector: **el dominio no sabe nada de SolidJS, Tauri, Supabase, el DOM 
 ## 2. Reglas absolutas (no negociables)
 
 1. **Prohibido `any`**, explícito o implícito. Usa `unknown` y estrecha el tipo, genéricos o tipos específicos.
-2. **Obligatorio usar funciones de flecha.** Prohibida la palabra clave `function` (declaraciones y expresiones).
-3. **Los ids de entidades son Value Objects** que extienden de la clase abstracta `Uuid`. Prohibido usar `string` crudo como id en el dominio.
+2. **Clases en `domain`, `application` e `infrastructure`; funciones de flecha en `presentation`.** Prohibida la palabra clave `function` (declaraciones y expresiones) en todo el proyecto.
+3. **Todo en los agregados y entidades son Value Objects (clases):** Los ids extienden de la clase abstracta `Uuid` y cada atributo del agregado se modela como una clase de Value Object (`StringValueObject`, `NumberValueObject`, `BooleanValueObject`, `EnumValueObject`). Prohibido usar tipos primitivos crudos dentro de las propiedades de un agregado.
 4. **La regla de dependencia apunta siempre hacia el dominio.**
 5. **Sin lógica de negocio fuera de `domain`.**
 
-### 2.1 Regla de funciones de flecha
+### 2.1 Regla de clases por capa vs. funciones de flecha en la capa visual
+
+- **Capas `domain`, `application` e `infrastructure` → Orientadas a Objetos con Clases (`class` / `abstract class` / `interface`):**
+  - **`domain`:** Value Objects, Entidades, Agregados (`AggregateRoot`), Eventos de Dominio (`DomainEvent`), Servicios de Dominio y Errores de Dominio se implementan con **clases**. Los puertos de repositorio son `interface` (`TaskRepository`).
+  - **`application`:** Los Casos de Uso (`class CompleteTaskUseCase`) y los Commands (`class CompleteTaskCommand`) se implementan con **clases** (inyección de dependencias por constructor y método `public async execute(...)`). Los puertos de aplicación son `interface` (`AuthService`).
+  - **`infrastructure`:** Los repositorios (`class SupabaseTaskRepository implements TaskRepository`), adaptadores de servicios (`class SupabaseAuthService implements AuthService`), adaptadores IPC de Tauri y mappers (`class WbTaskMapper`) se implementan con **clases**.
+- **Capa `presentation` (capa visual) y callbacks → Funciones de flecha (`() => {}`):**
+  - Componentes SolidJS (`atoms`, `molecules`, `organisms`, `templates`, `screens`): `export const TaskList = (props: TaskListProps): JSX.Element => { ... }`.
+  - Hooks de `viewModel` (`use<Screen>`), proveedores de estado/contexto, handlers de eventos (`const handleClick = (): void => { ... }`), utilidades visuales (`cn`) y callbacks (`.map((item) => ...)`): **siempre funciones de flecha**.
+- **Prohibida la palabra clave `function`** tanto en declaraciones como en expresiones en cualquier capa.
 
 ```ts
-// ✅ Correcto
-export const calculateTotal = (items: readonly Item[]): Money => { /* ... */ };
+// ✅ Correcto en domain / application / infrastructure (Clases)
+export class CompleteTaskUseCase {
+  public constructor(private readonly tasks: TaskRepository) {}
+
+  public async execute(command: CompleteTaskCommand): Promise<void> {
+    const task = await this.tasks.search(new TaskId(command.taskId));
+    if (task === null) throw new TaskNotFoundError(command.taskId);
+    task.complete();
+    await this.tasks.save(task);
+  }
+}
+
+// ✅ Correcto en presentation / flujo visual (Funciones de flecha)
+export const TaskList = (props: TaskListProps): JSX.Element => { /* ... */ };
 const handleClick = (): void => { /* ... */ };
 items.map((item) => item.price);
 
-// ❌ Incorrecto
+// ❌ Incorrecto en cualquier capa
 export function calculateTotal(items: Item[]): Money { /* ... */ }
 const handler = function () { /* ... */ };
 ```
-
-- Casos de uso, servicios, adaptadores funcionales, factories, handlers y callbacks: **siempre flecha**.
-- Componentes SolidJS: `export const TaskList = (props: TaskListProps): JSX.Element => { ... }`.
-- **Única excepción:** los *miembros de una clase* (métodos, constructores, métodos abstractos, `static`). La sintaxis de método es necesaria para `abstract`, `super.metodo()`, herencia por prototipo y para no crear una función por instancia. Para todo lo demás se usan flechas. Si algo puede ser una función flecha en lugar de una clase, **prefiere la flecha**.
-- Los métodos auxiliares de utilería (fuera de clases) son siempre `const nombre = () => {}`.
 
 Cumplimiento por lint (ver sección 9):
 
@@ -53,13 +69,11 @@ Cumplimiento por lint (ver sección 9):
   "prefer-arrow-callback": "error",
   "no-restricted-syntax": [
     "error",
-    { "selector": "FunctionDeclaration", "message": "Usa funciones de flecha." },
-    { "selector": "FunctionExpression", "message": "Usa funciones de flecha." }
+    { "selector": "FunctionDeclaration", "message": "Prohibido 'function'. Usa clases en domain/application/infrastructure y funciones de flecha en presentation." },
+    { "selector": ":not(MethodDefinition) > FunctionExpression", "message": "Prohibido 'function'. Usa métodos de clase o funciones de flecha." }
   ]
 }
 ```
-
-> Nota: `FunctionExpression` también captura los métodos de clase en algunos parsers. Si el lint los marca, limita ese selector a `:not(MethodDefinition > FunctionExpression)`.
 
 ### 2.2 Regla de `any`
 
@@ -100,16 +114,16 @@ Reglas de aislamiento:
 Los objetos de transferencia de datos de la capa de aplicación **se llaman siempre `commands`**. No se usa el sufijo `Dto` ni la carpeta `dto/`.
 
 - Viven en `application/commands/` y se nombran `<Verbo><Objeto>Command` (`CreateTaskCommand`, `CompleteTaskCommand`).
-- Son tipos inmutables de **primitivos** (`string`, `number`, `boolean`), sin Value Objects, entidades ni clases del dominio; el caso de uso los convierte a Value Objects.
-- Un caso de uso recibe como máximo **un** command.
-- Sin lógica: solo datos. La validación ocurre al construir los Value Objects en el dominio.
+- Se implementan como **clases inmutables** (`readonly` en las propiedades del constructor) compuestas únicamente de **primitivos** (`string`, `number`, `boolean`, `null`), sin Value Objects ni entidades; la clase del caso de uso los convierte a Value Objects.
+- Un caso de uso recibe como máximo **un** command en su método `execute(command)`.
+- Sin lógica de negocio: solo transporte de datos. La validación ocurre al construir los Value Objects en el dominio.
 - Los casos de uso de lectura devuelven primitivos tipados (por ejemplo `TaskPrimitives`), no entidades.
 
 ```ts
 // modules/tasks/application/commands/complete-task.command.ts
-export type CompleteTaskCommand = {
-  readonly taskId: string;
-};
+export class CompleteTaskCommand {
+  public constructor(public readonly taskId: string) {}
+}
 ```
 
 ### 3.2 Estructura de carpetas (frontend)
@@ -445,12 +459,13 @@ export class Task extends AggregateRoot<TaskPrimitives> {
 
 ### 4.4 Reglas para ids, entidades y agregados
 
+- **Todo atributo dentro de un agregado o entidad es un Value Object (clase):** Prohibido tener propiedades `string`, `number` o `boolean` sueltas dentro de la clase del agregado. Cada propiedad se envuelve en su clase de Value Object (`Uuid`, `StringValueObject`, `NumberValueObject`, `BooleanValueObject`, `EnumValueObject`).
 - Todo id es un Value Object que **extiende de `Uuid`** (`TaskId`, `UserId`…). No existe `string` crudo como id dentro del dominio.
 - Los ids **se generan en el dominio** (`TaskId.random()`), no en la base de datos ni en la UI.
-- Los ids cruzan fronteras como `string` solo en commands, filas de Supabase y `toPrimitives()`; al volver se reconstruyen (`new TaskId(value)`).
+- Los ids y demás atributos cruzan fronteras como primitivos solo en `commands`, filas de Supabase y `toPrimitives()`; al volver al dominio se reconstruyen mediante sus clases (`new TaskId(value)` o `Task.fromPrimitives(plain)`).
 - Un id de un agregado **no** es intercambiable con el de otro (clases distintas; `equals` compara también el tipo).
-- Los agregados exponen `toPrimitives()` y `fromPrimitives()`; **los mappers de infraestructura** (Supabase ⇄ dominio) usan estos métodos y nunca acceden a campos internos.
-- Los agregados registran eventos con `record()` y los casos de uso los publican con `pullDomainEvents()`.
+- Los agregados exponen `toPrimitives()` y `fromPrimitives()`; **las clases mapper de infraestructura** (Supabase ⇄ dominio) usan estos métodos y nunca acceden a campos internos.
+- Los agregados registran eventos con `record()` y las clases de casos de uso los publican con `pullDomainEvents()`.
 
 ---
 
@@ -713,17 +728,19 @@ export type { TaskFilter, TaskListScreenProps, TaskListViewModel } from "./task-
 - **Sin dependencias circulares.** Lint de límites de capas con `eslint-plugin-boundaries` o `dependency-cruiser` (obligatorio en CI).
 - **Inmutabilidad** por defecto: `readonly`, `as const`, sin mutar objetos fuera de sus métodos.
 - **Comentarios:** explican el *por qué*, no el *qué*.
-- Casos de uso como funciones flecha con dependencias inyectadas:
+- **Casos de uso en `application` implementados como clases** con dependencias inyectadas por constructor y método `execute`:
 
 ```ts
-export const completeTask =
-  (deps: { readonly tasks: TaskRepository }) =>
-  async (command: CompleteTaskCommand): Promise<void> => {
-    const task = await deps.tasks.search(new TaskId(command.taskId));
+export class CompleteTaskUseCase {
+  public constructor(private readonly tasks: TaskRepository) {}
+
+  public async execute(command: CompleteTaskCommand): Promise<void> {
+    const task = await this.tasks.search(new TaskId(command.taskId));
     if (task === null) throw new TaskNotFoundError(command.taskId);
     task.complete();
-    await deps.tasks.save(task);
-  };
+    await this.tasks.save(task);
+  }
+}
 ```
 
 ---
@@ -805,8 +822,9 @@ Al terminar:
 
 - [ ] Se respeta la regla de dependencia entre capas
 - [ ] La lógica de negocio está en `domain`
-- [ ] Los ids son Value Objects que extienden de `Uuid`
-- [ ] Sin `any` y sin `function` (solo funciones de flecha)
+- [ ] En los agregados y entidades todo atributo es una clase de Value Object y los ids extienden de `Uuid`
+- [ ] `domain`, `application` e `infrastructure` están implementados con clases (`class` / `interface`), y `presentation` con funciones de flecha
+- [ ] Sin `any` y sin la palabra clave `function`
 - [ ] La UI respeta Atomic Design (`atoms`, `molecules`, `organisms`, `templates`, `screens`) y MVVM (`model`, `view`, `viewModel` con `use<Screen>`)
 - [ ] Supabase/Tauri solo aparecen en `infrastructure`
 - [ ] Hay tests nuevos/actualizados y pasan

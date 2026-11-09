@@ -43,7 +43,9 @@ Use this skill when implementing persistence, authentication, or realtime adapte
 
 ## 3. Step-by-Step Procedures
 
-### Step 1: Create the Row ⇄ Domain Mapper (`infrastructure/mappers/`)
+### Step 1: Create the Row ⇄ Domain Mapper Class (`infrastructure/mappers/`)
+
+All mappers and adapters in `infrastructure` are implemented with **classes**:
 
 ```ts
 // src/modules/workboard/infrastructure/mappers/wb-task.mapper.ts
@@ -58,52 +60,55 @@ export type WbTaskRow = {
   readonly blocker_reason: string | null;
 };
 
-export const wbTaskRowToDomain = (row: WbTaskRow): Task =>
-  Task.fromPrimitives({
-    id: row.id,
-    projectId: row.project_id,
-    title: row.title,
-    status: row.status,
-    priority: row.priority,
-    blockerReason: row.blocker_reason,
-  });
+export class WbTaskMapper {
+  public static toDomain(row: WbTaskRow): Task {
+    return Task.fromPrimitives({
+      id: row.id,
+      projectId: row.project_id,
+      title: row.title,
+      status: row.status,
+      priority: row.priority,
+      blockerReason: row.blocker_reason,
+    });
+  }
 
-export const wbTaskDomainToRow = (task: Task): WbTaskRow => {
-  const primitives: TaskPrimitives = task.toPrimitives();
-  return {
-    id: primitives.id,
-    project_id: primitives.projectId,
-    title: primitives.title,
-    status: primitives.status,
-    priority: primitives.priority,
-    blocker_reason: primitives.blockerReason,
-  };
-};
+  public static toRow(task: Task): WbTaskRow {
+    const primitives: TaskPrimitives = task.toPrimitives();
+    return {
+      id: primitives.id,
+      project_id: primitives.projectId,
+      title: primitives.title,
+      status: primitives.status,
+      priority: primitives.priority,
+      blocker_reason: primitives.blockerReason,
+    };
+  }
+}
 ```
 
-### Step 2: Implement the Repository Port (`infrastructure/supabase/`)
+### Step 2: Implement the Repository Port Class (`infrastructure/supabase/`)
 
-Query the prefixed table in the `app_core` schema with explicit column projection and filters:
+Implement the domain repository `interface` using a **class** with constructor injection, querying the prefixed table in the `app_core` schema with explicit column projection and filters:
 
 ```ts
 // src/modules/workboard/infrastructure/supabase/supabase-task.repository.ts
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Task, TaskId, TaskRepository } from "@/modules/workboard/domain";
-import { wbTaskDomainToRow, wbTaskRowToDomain, type WbTaskRow } from "../mappers/wb-task.mapper";
+import { WbTaskMapper, type WbTaskRow } from "../mappers/wb-task.mapper";
 
-export const createSupabaseTaskRepository = (deps: {
-  readonly client: SupabaseClient;
-}): TaskRepository => ({
-  save: async (task: Task): Promise<void> => {
-    const row = wbTaskDomainToRow(task);
-    const { error } = await deps.client.schema("app_core").from("wb_tasks").upsert(row);
+export class SupabaseTaskRepository implements TaskRepository {
+  public constructor(private readonly client: SupabaseClient) {}
+
+  public async save(task: Task): Promise<void> {
+    const row = WbTaskMapper.toRow(task);
+    const { error } = await this.client.schema("app_core").from("wb_tasks").upsert(row);
     if (error !== null) {
       throw new Error(`Failed to save task: ${error.code}`);
     }
-  },
+  }
 
-  search: async (id: TaskId): Promise<Task | null> => {
-    const { data, error } = await deps.client
+  public async search(id: TaskId): Promise<Task | null> {
+    const { data, error } = await this.client
       .schema("app_core")
       .from("wb_tasks")
       .select("id, project_id, title, status, priority, blocker_reason")
@@ -114,9 +119,9 @@ export const createSupabaseTaskRepository = (deps: {
       throw new Error(`Failed to search task: ${error.code}`);
     }
 
-    return data !== null ? wbTaskRowToDomain(data) : null;
-  },
-});
+    return data !== null ? WbTaskMapper.toDomain(data) : null;
+  }
+}
 ```
 
 ### Step 3: Version Migrations & RLS in `supabase/migrations/`

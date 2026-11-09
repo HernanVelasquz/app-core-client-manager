@@ -16,8 +16,8 @@ Use this skill when creating or modifying code inside `src/shared/kernel/` or `s
 ## 1. Core Principles & Non-Negotiable Rules
 
 1. **Zero External Dependencies:** `domain` may ONLY import from within its own `domain` and `@/shared/kernel`. Never import `solid-js`, `@tauri-apps/*`, `@supabase/*`, `application`, `infrastructure`, `presentation`, or another bounded context.
-2. **No `any` & Arrow Functions Only:** Never use `any` (explicit or implicit). Use arrow functions everywhere; the **only** exception is class members (constructors, methods, `abstract` methods, `static` methods) required by Value Objects, Entities, Aggregates, and Domain Events.
-3. **Entity IDs are `Uuid` Value Objects:** Every entity/aggregate ID must extend `Uuid` (e.g., `export class ClientId extends Uuid {}`). Raw `string` IDs are strictly forbidden inside the domain.
+2. **Object-Oriented Classes in `domain` & No `any`:** Never use `any` (explicit or implicit) or the `function` keyword. The `domain` layer ( along with `application` and `infrastructure`) is implemented strictly with **classes (`class` / `abstract class`)** and **interfaces (`interface`)** for repository ports (`export interface QuoteRepository`). Arrow functions are reserved for internal array callbacks (e.g. `.map((item) => ...)`), while the visual flow in `presentation` uses arrow functions.
+3. **Everything in Aggregates is a Value Object Class:** Every entity/aggregate ID must extend `Uuid` (`export class ClientId extends Uuid {}`), and **every property inside an Aggregate or Entity must be an instance of a Value Object class** (`StringValueObject`, `NumberValueObject`, `BooleanValueObject`, `EnumValueObject`). Raw primitive properties (`string`, `number`, `boolean`) inside aggregates are strictly forbidden.
 4. **All Business Logic Lives in `domain`:** Invariants, state transitions, and validations belong inside Value Objects, Entities, Aggregates, or Domain Services.
 5. **Public API per Layer:** Expose all public domain contracts through `src/modules/<bounded-context>/domain/index.ts`.
 
@@ -151,15 +151,16 @@ src/
 
 ### Step 2: Create Aggregates Enforcing Domain Invariants (`domain/aggregates/`)
 
-1. Define an explicit `<Aggregate>Primitives` type using only primitive types (`string`, `number`, `boolean`, `null`).
+1. Define an explicit `<Aggregate>Primitives` type using only primitive types (`string`, `number`, `boolean`, `null`) for boundary serialization.
 2. Extend `AggregateRoot<<Aggregate>Primitives>`.
-3. Enforce domain invariants inside domain methods (e.g., requiring `BlockerReason` when transitioning to `BLOCKER`, or requiring both developer and client signatures before marking a quote `ACCEPTED`).
-4. Provide `static fromPrimitives(plain: <Aggregate>Primitives)` and `toPrimitives(): <Aggregate>Primitives`.
+3. **Treat every attribute of the Aggregate as a Value Object class** (`Uuid`, `StringValueObject`, `NumberValueObject`, `BooleanValueObject`, `EnumValueObject`). Never store raw primitive fields on the aggregate class.
+4. Enforce domain invariants inside domain methods (e.g., requiring `BlockerReason` when transitioning to `BLOCKER`, or requiring both developer and client signatures before marking a quote `ACCEPTED`).
+5. Provide `static fromPrimitives(plain: <Aggregate>Primitives)` and `toPrimitives(): <Aggregate>Primitives`.
 
 ### Step 3: Define Repository Interfaces & Domain Errors
 
-1. **Repositories (`domain/repositories/`):** Name ports by capability without an `I` prefix (`QuoteRepository`, `ProjectRepository`, `TaskRepository`).
-2. **Domain Errors (`domain/errors/`):** Create explicit error classes for broken invariants (e.g., `MissingQuoteSignaturesError`, `MissingBlockerReasonError`).
+1. **Repositories (`domain/repositories/`):** Define ports as `interface` (`export interface QuoteRepository { ... }`), named by capability without an `I` prefix (`QuoteRepository`, `ProjectRepository`, `TaskRepository`).
+2. **Domain Errors (`domain/errors/`):** Create explicit error classes (`extends Error`) for broken invariants (e.g., `MissingQuoteSignaturesError`, `MissingBlockerReasonError`).
 
 ---
 

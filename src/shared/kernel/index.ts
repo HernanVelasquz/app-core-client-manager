@@ -13,6 +13,7 @@ export type {
   EventBus,
 } from "./event-bus";
 export {
+  BooleanValueObject,
   EnumValueObject,
   InvalidArgumentError,
   NumberValueObject,
