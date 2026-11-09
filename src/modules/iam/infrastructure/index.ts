@@ -6,11 +6,6 @@ export {
   type IamRolePermissionJoinRow,
 } from "./mappers/iam-profile.mapper";
 export {
-  LocalDemoAuthService,
-  LocalDemoIamState,
-  LocalDemoPerfilUsuarioRepository,
-} from "./supabase/local-demo-iam.adapters";
-export {
   AuthInfrastructureError,
   SupabaseAuthService,
 } from "./supabase/supabase-auth.service";

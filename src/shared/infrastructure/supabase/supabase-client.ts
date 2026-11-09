@@ -26,17 +26,13 @@ export class AppCoreSupabaseClientFactory {
     return createInternalClient(config);
   }
 
-  public static resolveConfigFromEnv(): SupabaseClientConfig | null {
+  public static createFromEnv(): AppCoreSupabaseClient {
     const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? "";
     const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? "";
 
-    if (url.length === 0 || anonKey.length === 0) {
-      return null;
-    }
-
-    return {
-      url,
-      anonKey,
-    };
+      return AppCoreSupabaseClientFactory.create({
+        url,
+        anonKey,
+    });
   }
 }

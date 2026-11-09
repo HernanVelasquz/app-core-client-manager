@@ -3,13 +3,8 @@ import {
   RequestPasswordResetUseCase,
   SignInWithPasswordUseCase,
   SignOutUserUseCase,
-  type AuthService,
 } from "@/modules/iam/application";
-import type { PerfilUsuarioRepository } from "@/modules/iam/domain";
 import {
-  LocalDemoAuthService,
-  LocalDemoIamState,
-  LocalDemoPerfilUsuarioRepository,
   SupabaseAuthService,
   SupabasePerfilUsuarioRepository,
 } from "@/modules/iam/infrastructure";
@@ -20,42 +15,21 @@ export type AppContainer = {
   readonly iam: IamUseCasesContract;
 };
 
-const createIamAdapters = (): {
-  readonly authService: AuthService;
-  readonly profiles: PerfilUsuarioRepository;
-} => {
-  const supabaseConfig = AppCoreSupabaseClientFactory.resolveConfigFromEnv();
-
-  if (supabaseConfig !== null) {
-    const client = AppCoreSupabaseClientFactory.create(supabaseConfig);
-    return {
-      authService: new SupabaseAuthService(client),
-      profiles: new SupabasePerfilUsuarioRepository(client),
-    };
-  }
-
-  const demoState = new LocalDemoIamState();
-  return {
-    authService: new LocalDemoAuthService(demoState),
-    profiles: new LocalDemoPerfilUsuarioRepository(demoState),
-  };
-};
-
 export const createAppContainer = (): AppContainer => {
-  const adapters = createIamAdapters();
+  const supabaseClient = AppCoreSupabaseClientFactory.createFromEnv();
+  const authService = new SupabaseAuthService(supabaseClient);
+  const profilesRepository = new SupabasePerfilUsuarioRepository(supabaseClient);
 
   const signInWithPasswordUseCase = new SignInWithPasswordUseCase(
-    adapters.authService,
-    adapters.profiles,
+    authService,
+    profilesRepository,
   );
   const getCurrentSessionProfileUseCase = new GetCurrentSessionProfileUseCase(
-    adapters.authService,
-    adapters.profiles,
+    authService,
+    profilesRepository,
   );
-  const signOutUserUseCase = new SignOutUserUseCase(adapters.authService);
-  const requestPasswordResetUseCase = new RequestPasswordResetUseCase(
-    adapters.authService,
-  );
+  const signOutUserUseCase = new SignOutUserUseCase(authService);
+  const requestPasswordResetUseCase = new RequestPasswordResetUseCase(authService);
 
   return {
     iam: {
