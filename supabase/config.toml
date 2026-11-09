@@ -1,0 +1,21 @@
+# Configuración de Supabase CLI para app-core-client-manager (VPS autoalojado)
+project_id = "app-core-client-manager"
+
+[api]
+enabled = true
+port = 54321
+# IMPORTANTE: En el VPS autoalojado (docker-compose / kong / postgrest),
+# PGRST_DB_SCHEMAS debe incluir "app_core"
+schemas = ["public", "app_core", "graphql_public"]
+extra_search_path = ["public", "extensions", "app_core"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[db.migrations]
+enabled = true
+schema_paths = []
+
