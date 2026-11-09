@@ -15,12 +15,12 @@ Use this skill when creating or modifying `src/modules/{iam,commercial,project-m
 ## 1. Core Principles & Non-Negotiable Rules
 
 1. **Dependency Direction:** `application` may ONLY import from `domain` (of the same bounded context) and `@/shared/kernel`. Never import `solid-js`, `@tauri-apps/*`, `@supabase/*`, `infrastructure`, `presentation`, or another bounded context directly.
-2. **Commands Only (No DTOs):** Input data transfer objects in the application layer are always called **`commands`** and live in `application/commands/`. The suffix `Dto` and folder `dto/` are strictly forbidden.
-3. **Arrow Functions Only:** Use cases, factories, and helpers must be written as arrow functions (`const myUseCase = (deps) => async (command) => ...`). Never use the `function` keyword.
+2. **Commands Only (No DTOs):** Input data transfer objects in the application layer are always called **`commands`**, live in `application/commands/`, and are implemented as **immutable classes** (`export class BlockTaskCommand`). The suffix `Dto` and folder `dto/` are strictly forbidden.
+3. **Implemented with Classes (`class` & `interface`):** Like `domain` and `infrastructure`, the `application` layer is implemented with **classes**: Use Cases are classes (`export class BlockTaskUseCase`) with constructor dependency injection and a `public async execute(command: ...)` method, Commands are classes, and secondary ports (`application/ports/`) are `interface` (`export interface AuthService`). Arrow functions are reserved for the `presentation` (visual) layer and inline array callbacks. Never use the `function` keyword.
 4. **No Domain Entities Cross the Application Boundary:**
-   - **Inputs:** Use cases receive at most **one** Command made of `readonly` primitives (`string`, `number`, `boolean`) and convert its fields into Domain Value Objects.
+   - **Inputs:** Use cases receive at most **one** Command class instance made of `readonly` primitives (`string`, `number`, `boolean`, `null`) and convert its fields into Domain Value Objects.
    - **Outputs:** Read use cases return typed primitives (e.g., `readonly QuotePrimitives[]`), never `AggregateRoot` or `Entity` instances.
-5. **Composition Root Wiring:** Dependency injection (binding infrastructure adapters to domain/application ports and orchestrating cross-context workflows) happens exclusively in `src/app/`.
+5. **Composition Root Wiring:** Dependency injection (instantiating infrastructure adapter classes and injecting them into use case classes) happens exclusively in `src/app/`.
 
 ---
 
@@ -63,24 +63,32 @@ src/
 
 ## 4. Step-by-Step Procedures
 
-### Step 1: Define the Command (`application/commands/`)
+### Step 1: Define the Command Class (`application/commands/`)
 
 - File naming: `<verb>-<object>.command.ts` (in `kebab-case`).
-- Type naming: `<Verb><Object>Command` (in `PascalCase`, e.g., `BlockTaskCommand`, `AcceptQuoteCommand`).
+- Class naming: `<Verb><Object>Command` (in `PascalCase`, e.g., `BlockTaskCommand`, `AcceptQuoteCommand`).
 - Properties must be `readonly` primitives (`string`, `number`, `boolean`, `null`).
 
 ```ts
 // src/modules/workboard/application/commands/block-task.command.ts
-export type BlockTaskCommand = {
-  readonly taskId: string;
-  readonly blockerReason: string;
-};
+export class BlockTaskCommand {
+  public readonly taskId: string;
+  public readonly blockerReason: string;
+
+  public constructor(params: {
+    readonly taskId: string;
+    readonly blockerReason: string;
+  }) {
+    this.taskId = params.taskId;
+    this.blockerReason = params.blockerReason;
+  }
+}
 ```
 
-### Step 2: Implement the Use Case (`application/use-cases/`)
+### Step 2: Implement the Use Case Class (`application/use-cases/`)
 
 - File naming: `<verb>-<object>.use-case.ts`.
-- Export a higher-order arrow function that receives `deps` (ports/repositories) and returns an `async` arrow function accepting at most one `Command`.
+- Export a class named `<Verb><Object>UseCase` that receives its ports/repositories via constructor injection and exposes `public async execute(command: <Verb><Object>Command)`.
 
 ```ts
 // src/modules/workboard/application/use-cases/block-task.use-case.ts
@@ -92,32 +100,34 @@ import {
 } from "@/modules/workboard/domain";
 import type { BlockTaskCommand } from "../commands";
 
-export const blockTask =
-  (deps: { readonly tasks: TaskRepository }) =>
-  async (command: BlockTaskCommand): Promise<void> => {
+export class BlockTaskUseCase {
+  public constructor(private readonly tasks: TaskRepository) {}
+
+  public async execute(command: BlockTaskCommand): Promise<void> {
     const taskId = new TaskId(command.taskId);
     const reason = new BlockerReason(command.blockerReason);
 
-    const task = await deps.tasks.search(taskId);
+    const task = await this.tasks.search(taskId);
     if (task === null) {
       throw new TaskNotFoundError(command.taskId);
     }
 
     task.markAsBlocker(reason);
-    await deps.tasks.save(task);
-  };
+    await this.tasks.save(task);
+  }
+}
 ```
 
 ### Step 3: Export from `application/index.ts` and Wire in `src/app/`
 
-Expose commands, ports, and use cases in `src/modules/<bounded-context>/application/index.ts`, and wire concrete adapters only inside `src/app/container.ts`.
+Expose command classes, port interfaces, and use case classes in `src/modules/<bounded-context>/application/index.ts`, and instantiate concrete adapter classes and use case classes only inside `src/app/container.ts`.
 
 ---
 
 ## 5. Verification Checklist
 
-- [ ] Are all input types placed in `application/commands/` and named `<Verb><Object>Command` (no `Dto` suffix)?
-- [ ] Does each use case accept at most one command of `readonly` primitives?
+- [ ] Are all input commands implemented as classes in `application/commands/` and named `<Verb><Object>Command` (no `Dto` suffix)?
+- [ ] Does each use case class accept at most one command of `readonly` primitives in `execute(command)`?
 - [ ] Do read use cases return `<Aggregate>Primitives` via `.toPrimitives()` instead of domain objects?
-- [ ] Are all use cases written as curried arrow functions (`(deps) => async (command) => ...`)?
+- [ ] Are all use cases implemented as classes (`<Verb><Object>UseCase`) with constructor dependency injection?
 - [ ] Are cross-context interactions respecting the Context Mapping boundaries without direct imports between bounded contexts?

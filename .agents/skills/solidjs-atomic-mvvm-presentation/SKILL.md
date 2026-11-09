@@ -13,7 +13,7 @@ Use this skill when working in `src/shared/ui/` or `src/modules/{iam,commercial,
 
 ## 1. Core Principles & Non-Negotiable Rules
 
-1. **Arrow Functions Only & No `any`:** Every component, hook (`use<Screen>`), event handler, and helper must be an arrow function. Never use `any` or the `function` keyword.
+1. **Arrow Functions in Presentation (`() => {}`) & No `any`:** While `domain`, `application`, and `infrastructure` are implemented with OOP classes, **the entire visual flow in `presentation` (`atoms`, `molecules`, `organisms`, `templates`, `screens`, hooks `use<Screen>`, event handlers, and UI utilities) must be implemented with arrow functions**. Never use `any` or the `function` keyword.
 2. **SolidJS Reactivity Rules:**
    - **Never destructure `props`** (it breaks SolidJS reactivity). Always access `props.x` or use `splitProps` / `mergeProps`.
    - Solid is **not React**: components execute only once. Never use React patterns (dependency arrays, `useEffect` for state synchronization).
@@ -25,8 +25,8 @@ Use this skill when working in `src/shared/ui/` or `src/modules/{iam,commercial,
    - Strict upward import hierarchy: `atoms` → `molecules` → `organisms` → `templates` → `screens`. A lower level may never import from a higher level.
    - Generic, domain-agnostic components go in `src/shared/ui/{atoms,molecules,organisms,templates}`. Bounded-context components go in `src/modules/{iam,commercial,project-management,workboard}/presentation/{atoms,molecules,organisms,templates,screens}`.
 4. **Strict MVVM & Role-Based UI Visibility in Every `screen`:**
-   - Only a `screen`'s `viewModel` (`use<Screen>`) is allowed to consume injected use cases. `atoms`, `molecules`, `organisms`, `templates`, and `.view.tsx` files must **never** invoke use cases directly.
-   - The UI sends `commands` to use cases and consumes typed primitives (`<Aggregate>Primitives`), never domain entities or Value Objects.
+   - Only a `screen`'s `viewModel` (`use<Screen>`) is allowed to consume injected use case instances. `atoms`, `molecules`, `organisms`, `templates`, and `.view.tsx` files must **never** invoke use cases directly.
+   - The UI instantiates/sends `Command` classes to `useCase.execute(new <Verb><Object>Command(...))` and consumes typed primitives (`<Aggregate>Primitives`), never domain entities or Value Objects.
    - Respect domain visibility rules in presentation screens (e.g., in `project-management`, the `Desarrollador` role only views basic project info and `cover_image_path` without timeline milestones or management documents; in `commercial`, separate quick client lookup from detailed quote history).
 
 ---

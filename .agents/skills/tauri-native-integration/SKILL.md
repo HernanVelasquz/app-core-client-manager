@@ -74,7 +74,7 @@ pub async fn export_client_report(path: String, payload: String) -> Result<(), A
 
 Register the command in `src-tauri/src/lib.rs` inside `tauri::Builder::default().invoke_handler(tauri::generate_handler![...])`.
 
-### Step 2: Define the Port in TypeScript (`application/ports/` or `domain/repositories/`)
+### Step 2: Define the Port Interface in TypeScript (`application/ports/` or `domain/repositories/`)
 
 ```ts
 // src/modules/reports/application/ports/report-exporter.port.ts
@@ -83,22 +83,22 @@ export type ExportReportInput = {
   readonly content: string;
 };
 
-export type ReportExporter = {
-  readonly exportReport: (input: ExportReportInput) => Promise<void>;
-};
+export interface ReportExporter {
+  exportReport(input: ExportReportInput): Promise<void>;
+}
 ```
 
-### Step 3: Implement the TypeScript Adapter (`infrastructure/tauri/`)
+### Step 3: Implement the TypeScript Adapter Class (`infrastructure/tauri/`)
 
-Validate/narrow `unknown` responses and translate IPC errors into typed application errors. Use arrow functions only:
+Validate/narrow `unknown` responses and translate IPC errors into typed application errors. Implement adapters as **classes** (`implements <Port>`):
 
 ```ts
 // src/modules/reports/infrastructure/tauri/tauri-report-exporter.adapter.ts
 import { invoke } from "@tauri-apps/api/core";
 import type { ExportReportInput, ReportExporter } from "@/modules/reports/application";
 
-export const createTauriReportExporter = (): ReportExporter => ({
-  exportReport: async (input: ExportReportInput): Promise<void> => {
+export class TauriReportExporter implements ReportExporter {
+  public async exportReport(input: ExportReportInput): Promise<void> {
     try {
       await invoke<void>("export_client_report", {
         path: input.filePath,
@@ -109,26 +109,27 @@ export const createTauriReportExporter = (): ReportExporter => ({
         error instanceof Error ? error.message : "Error al exportar el reporte nativo",
       );
     }
-  },
-});
+  }
+}
 ```
 
-#### Secure Storage / Keyring Adapter Example (for Supabase Session Persistence)
+#### Secure Storage / Keyring Adapter Class Example (for Supabase Session Persistence)
 
 ```ts
-// src/modules/auth/infrastructure/tauri/tauri-secure-storage.adapter.ts
+// src/modules/iam/infrastructure/tauri/tauri-secure-storage.adapter.ts
 import { invoke } from "@tauri-apps/api/core";
-import type { SecureStoragePort } from "@/modules/auth/application";
+import type { SecureStoragePort } from "@/modules/iam/application";
 
-export const createTauriSecureStorage = (): SecureStoragePort => ({
-  getSecret: async (key: string): Promise<string | null> => {
+export class TauriSecureStorageAdapter implements SecureStoragePort {
+  public async getSecret(key: string): Promise<string | null> {
     const result: unknown = await invoke("get_secret", { key });
     return typeof result === "string" ? result : null;
-  },
-  setSecret: async (key: string, value: string): Promise<void> => {
+  }
+
+  public async setSecret(key: string, value: string): Promise<void> {
     await invoke("set_secret", { key, value });
-  },
-});
+  }
+}
 ```
 
 ### Step 4: Configure Capabilities (`src-tauri/capabilities/`)

@@ -61,34 +61,36 @@ describe("TaskTitle", () => {
 // src/modules/tasks/application/use-cases/__tests__/create-task.use-case.test.ts
 import { describe, expect, it } from "vitest";
 import type { Task, TaskId, TaskRepository } from "@/modules/tasks/domain";
-import { createTask } from "../create-task.use-case";
+import { CreateTaskCommand } from "../../commands";
+import { CreateTaskUseCase } from "../create-task.use-case";
 
-const createInMemoryTaskRepository = (): TaskRepository & {
-  readonly items: Task[];
-} => {
-  const items: Task[] = [];
-  return {
-    items,
-    save: async (task: Task): Promise<void> => {
-      const index = items.findIndex((item) => item.id.equals(task.id));
-      if (index >= 0) {
-        items[index] = task;
-      } else {
-        items.push(task);
-      }
-    },
-    search: async (id: TaskId): Promise<Task | null> =>
-      items.find((item) => item.id.equals(id)) ?? null,
-    searchAll: async (): Promise<readonly Task[]> => items,
-  };
-};
+class InMemoryTaskRepository implements TaskRepository {
+  public readonly items: Task[] = [];
 
-describe("createTask use case", () => {
+  public async save(task: Task): Promise<void> {
+    const index = this.items.findIndex((item) => item.id.equals(task.id));
+    if (index >= 0) {
+      this.items[index] = task;
+    } else {
+      this.items.push(task);
+    }
+  }
+
+  public async search(id: TaskId): Promise<Task | null> {
+    return this.items.find((item) => item.id.equals(id)) ?? null;
+  }
+
+  public async searchAll(): Promise<readonly Task[]> {
+    return this.items;
+  }
+}
+
+describe("CreateTaskUseCase", () => {
   it("debería crear y persistir una tarea pendiente", async () => {
-    const repository = createInMemoryTaskRepository();
-    const execute = createTask({ tasks: repository });
+    const repository = new InMemoryTaskRepository();
+    const useCase = new CreateTaskUseCase(repository);
 
-    await execute({ title: "Enviar propuesta" });
+    await useCase.execute(new CreateTaskCommand({ title: "Enviar propuesta" }));
 
     expect(repository.items).toHaveLength(1);
     expect(repository.items[0]?.toPrimitives().title).toBe("Enviar propuesta");
