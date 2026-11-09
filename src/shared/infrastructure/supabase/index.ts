@@ -8,8 +8,12 @@ export {
   WORKBOARD_TABLES,
 } from "./app-core-schema";
 export {
-  domainEventToOutboxInsertRow,
-  outboxRowToDomainEventEntry,
+  DomainEventOutboxMapper,
   type SysDomainEventInsertRow,
   type SysDomainEventRow,
 } from "./domain-event-outbox.mapper";
+export {
+  AppCoreSupabaseClientFactory,
+  type AppCoreSupabaseClient,
+  type SupabaseClientConfig,
+} from "./supabase-client";

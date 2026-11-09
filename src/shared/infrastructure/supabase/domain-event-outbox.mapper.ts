@@ -33,33 +33,36 @@ export type SysDomainEventInsertRow = {
   readonly triggered_by_user_id: string | null;
 };
 
-export const domainEventToOutboxInsertRow = (
-  event: DomainEvent,
-  triggeredByUserId?: string,
-): SysDomainEventInsertRow => ({
-  id: event.eventId,
-  aggregate_id: event.aggregateId,
-  bounded_context: event.boundedContext,
-  event_name: event.eventName,
-  payload: event.toPrimitives(),
-  occurred_on: event.occurredOn.toISOString(),
-  status: "PENDING",
-  triggered_by_user_id: triggeredByUserId ?? null,
-});
+export class DomainEventOutboxMapper {
+  public static toInsertRow(
+    event: DomainEvent,
+    triggeredByUserId?: string,
+  ): SysDomainEventInsertRow {
+    return {
+      id: event.eventId,
+      aggregate_id: event.aggregateId,
+      bounded_context: event.boundedContext,
+      event_name: event.eventName,
+      payload: event.toPrimitives(),
+      occurred_on: event.occurredOn.toISOString(),
+      status: "PENDING",
+      triggered_by_user_id: triggeredByUserId ?? null,
+    };
+  }
 
-export const outboxRowToDomainEventEntry = (
-  row: SysDomainEventRow,
-): DomainEventOutboxEntry => ({
-  id: row.id,
-  aggregateId: row.aggregate_id,
-  boundedContext: row.bounded_context,
-  eventName: row.event_name,
-  payload: row.payload,
-  occurredOn: row.occurred_on,
-  status: row.status,
-  attempts: row.attempts,
-  lastError: row.last_error,
-  processedAt: row.processed_at,
-  triggeredByUserId: row.triggered_by_user_id,
-});
-
+  public static toDomainEntry(row: SysDomainEventRow): DomainEventOutboxEntry {
+    return {
+      id: row.id,
+      aggregateId: row.aggregate_id,
+      boundedContext: row.bounded_context,
+      eventName: row.event_name,
+      payload: row.payload,
+      occurredOn: row.occurred_on,
+      status: row.status,
+      attempts: row.attempts,
+      lastError: row.last_error,
+      processedAt: row.processed_at,
+      triggeredByUserId: row.triggered_by_user_id,
+    };
+  }
+}

@@ -1,3 +1,8 @@
-// Public Application API for `iam` (commands, ports, use-cases)
-export { };
-
+export { RequestPasswordResetCommand, SignInWithPasswordCommand } from "./commands";
+export { SignInCredentials, type AuthService } from "./ports";
+export {
+  GetCurrentSessionProfileUseCase,
+  RequestPasswordResetUseCase,
+  SignInWithPasswordUseCase,
+  SignOutUserUseCase,
+} from "./use-cases";

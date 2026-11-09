@@ -24,22 +24,16 @@ export type DomainEventOutboxEntry = {
   readonly triggeredByUserId: string | null;
 };
 
-export type EventBus = {
-  readonly publish: (events: readonly DomainEvent[]) => Promise<void>;
-};
+export interface EventBus {
+  publish(events: readonly DomainEvent[]): Promise<void>;
+}
 
-export type DomainEventOutboxRepository = {
-  readonly enqueue: (
+export interface DomainEventOutboxRepository {
+  enqueue(
     events: readonly DomainEvent[],
     triggeredByUserId?: string,
-  ) => Promise<void>;
-  readonly findPending: (
-    limit: number,
-  ) => Promise<readonly DomainEventOutboxEntry[]>;
-  readonly markAsProcessed: (eventId: string) => Promise<void>;
-  readonly markAsFailed: (
-    eventId: string,
-    errorMessage: string,
-  ) => Promise<void>;
-};
-
+  ): Promise<void>;
+  findPending(limit: number): Promise<readonly DomainEventOutboxEntry[]>;
+  markAsProcessed(eventId: string): Promise<void>;
+  markAsFailed(eventId: string, errorMessage: string): Promise<void>;
+}
