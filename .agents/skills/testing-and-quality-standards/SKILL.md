@@ -139,7 +139,11 @@ describe("createTask use case", () => {
 ## 4. Git & PR Checklist
 
 ### Conventional Commits & Branches
-- **Commits:** Use `<type>(<bounded-context>): <description>` (e.g., `feat(tasks): permite completar una tarea`, `fix(clients): valida longitud de nombre`).
+- **Commits:** Use `<type>(<bounded-context>): <description>` where `<bounded-context>` is one of `iam`, `commercial`, `project-management`, `workboard` (or `shared` / `app` for transversal changes), e.g.:
+  - `feat(commercial): exige doble firma antes de aceptar cotizacion`
+  - `feat(workboard): valida razon de bloqueo al pasar tarea a BLOCKER`
+  - `feat(project-management): crea proyecto desde cotizacion aceptada`
+  - `feat(iam): restringe eliminacion de roles con usuarios activos`
 - **Branches:** `feat/...`, `fix/...`, `refactor/...`, `chore/...`.
 
 ### Pre-PR Verification Checklist

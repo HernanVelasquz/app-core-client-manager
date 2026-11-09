@@ -8,7 +8,13 @@
     "dev": "vite",
     "build": "vite build",
     "serve": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "db:migration:new": "supabase migration new",
+    "db:migration:list": "supabase migration list --db-url \"$SUPABASE_DB_URL\"",
+    "db:migration:dry-run": "supabase db push --dry-run --db-url \"$SUPABASE_DB_URL\"",
+    "db:migration:push": "supabase db push --db-url \"$SUPABASE_DB_URL\"",
+    "db:types:gen": "supabase gen types typescript --db-url \"$SUPABASE_DB_URL\" --schema app_core > src/shared/infrastructure/supabase/database.types.ts"
   },
   "license": "MIT",
   "dependencies": {

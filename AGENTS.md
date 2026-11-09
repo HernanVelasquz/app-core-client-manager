@@ -118,7 +118,10 @@ export type CompleteTaskCommand = {
 src/
 ├── app/                          # Composition root: DI, router, providers, bootstrap
 ├── modules/
-│   └── <bounded-context>/
+│   ├── iam/                      # 1. Identidad y Acceso (Generic Subdomain)
+│   ├── commercial/               # 2. Comercial y Cotizaciones (Core Domain)
+│   ├── project-management/       # 3. Gestión de Proyectos (Core Domain)
+│   └── workboard/                # 4. Tablero de Trabajo Kanban (Supporting Subdomain)
 │       ├── domain/
 │       │   ├── entities/
 │       │   ├── value-objects/    # Ids, Email, Money, etc.
@@ -149,6 +152,8 @@ src/
 │           └── state/
 └── shared/
     ├── kernel/                   # value-object/ (ValueObject, StringValueObject, NumberValueObject, EnumValueObject, Uuid), AggregateRoot, DomainEvent, InvalidArgumentError
+    ├── infrastructure/
+    │   └── supabase/             # Configuración transversal del esquema `app_core` y tipos compartidos de cliente
     └── ui/                       # Design system transversal bajo Atomic Design (sin lógica de negocio)
         ├── atoms/
         ├── molecules/
@@ -168,6 +173,62 @@ src-tauri/
 ```
 
 Solo se escribe Rust para capacidades nativas (sistema de archivos, almacenamiento seguro, notificaciones, etc.). **No se duplica en Rust la lógica de negocio que ya vive en el dominio TypeScript.**
+
+### 3.4 Mapa de Bounded Contexts, Lenguaje Ubicuo e Invariantes (DDD)
+
+El sistema se estructura en **4 Bounded Contexts** alojados dentro del esquema personalizado **`app_core`** en Supabase (PostgreSQL). Cada contexto encapsula sus propias reglas de negocio, tablas, políticas RLS y lenguaje ubicuo:
+
+| Bounded Context | Módulo en Código | Prefijo BD | Aggregate Roots | Clasificación DDD |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Identidad y Acceso (IAM)** | `iam` | `iam_` | `Rol`, `PerfilUsuario` | Generic Subdomain |
+| **2. Comercial y Cotizaciones** | `commercial` | `com_` | `Cliente`, `PlantillaCotizacion`, `Cotizacion` | Core Domain |
+| **3. Gestión de Proyectos** | `project-management` | `prj_` | `Proyecto` | Core Domain |
+| **4. Tablero de Trabajo (Kanban)** | `workboard` | `wb_` | `Tarea` | Supporting Subdomain |
+
+#### 1. Contexto de Identidad y Acceso (`iam`)
+- **Responsabilidad:** Autenticación sincronizada con `auth.users`, administración de perfiles y control de acceso basado en roles y permisos dinámicos (RBAC).
+- **Tablas (`app_core`):** `iam_permissions`, `iam_roles`, `iam_role_permissions`, `iam_profiles`.
+- **Lenguaje Ubicuo:** `PerfilUsuario`, `RolDinamico`, `Permiso`, `AsignacionRol`.
+- **Fronteras e Invariantes:**
+  - Ningún otro contexto consulta directamente a `auth.users`; todos referencian el identificador de `iam_profiles`.
+  - Los roles (`Administrador`, `Gerente`, `Líder`, `Desarrollador` o nuevos roles creados) se gestionan dinámicamente desde la base de datos.
+  - No se permite eliminar un rol si tiene usuarios activos vinculados (`ON DELETE RESTRICT`).
+  - Solo usuarios con el permiso `USER_MANAGE` (inicialmente Administrador y Gerente) pueden anexar nuevos usuarios al sistema.
+
+#### 2. Contexto Comercial y Cotizaciones (`commercial`)
+- **Responsabilidad:** Ciclo preventa: directorio de clientes, levantamiento de requerimientos según el tipo de solución, carga y edición de formatos de acuerdo a partir de plantillas y recolección de firmas digitales.
+- **Tablas (`app_core`):** `com_clients`, `com_quote_templates`, `com_quotes`, `com_quote_requirements`, `com_quote_agreements`, `com_quote_attachments`.
+- **Lenguaje Ubicuo:** `Cliente`, `PlantillaCotizacion`, `Cotizacion`, `LevantamientoRequerimiento`, `AcuerdoComercial`, `FirmaDesarrollador`, `FirmaCliente`.
+- **Fronteras e Invariantes:**
+  - Separa el modelo de consulta rápida del cliente (nombre, teléfono, correo) de su vista detallada con historial de cotizaciones.
+  - Clasifica requerimientos por tipo de solución (`MOBILE`, `WEB`, `BACKEND`, `AUTOMATION`, `DESKTOP`, `OTHER`).
+  - Toma una plantilla base editable para definir `acuerdos`, `objetivos` y `entregables` específicos de la cotización.
+  - **Invariante de Doble Firma:** Una cotización no puede pasar a estado `ACCEPTED` si el acuerdo no cuenta con ambas firmas registradas (`dev_signature_path` y `client_signature_path`).
+
+#### 3. Contexto de Gestión de Proyectos (`project-management`)
+- **Responsabilidad:** Ciclo de vida del proyecto una vez aprobada la cotización, línea de tiempo, métricas para el dashboard, asignación de personal y repositorio documental.
+- **Tablas (`app_core`):** `prj_projects`, `prj_project_members`, `prj_timeline_milestones`, `prj_project_documents`.
+- **Lenguaje Ubicuo:** `Proyecto`, `MiembroEquipo`, `HitoTimeline`, `DocumentoProyecto`.
+- **Fronteras e Invariantes:**
+  - Un `Proyecto` se crea exclusivamente a partir de una `Cotizacion` en estado `ACCEPTED` (`source_quote_id`).
+  - Hereda los documentos anexados durante la cotización (`QUOTE_INHERITED`) y permite cargar nuevos documentos en la fase de ejecución (`PROJECT_EXECUTION`).
+  - **Invariante de Asignación:** Solo los usuarios con el permiso `PROJECT_ASSIGN_TEAM` (Administrador y Gerente) pueden asignar miembros al proyecto.
+  - **Restricción de Visibilidad:** El rol `Desarrollador` solo puede consultar la información básica y la imagen de portada (`cover_image_path`) de los proyectos donde esté asignado en `prj_project_members`, sin acceso a documentos gerenciales ni línea de tiempo.
+
+#### 4. Contexto de Tablero de Trabajo (`workboard`)
+- **Responsabilidad:** Entorno operativo Kanban donde el equipo técnico gestiona el flujo de tareas del proyecto.
+- **Tablas (`app_core`):** `wb_tasks`, `wb_task_attachments`.
+- **Lenguaje Ubicuo:** `Tarea`, `EstadoTarea` (`PENDING`, `IN_PROGRESS`, `COMPLETED`, `BLOCKER`), `PrioridadTarea` (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`), `AdjuntoTarea`.
+- **Fronteras e Invariantes:**
+  - Se modela como un agregado independiente de `Proyecto` para permitir alta concurrencia al mover tarjetas, ajustar prioridades y subir evidencias sin bloquear el registro del proyecto.
+  - **Invariante de Bloqueo:** Si una tarea cambia su estado a `BLOCKER`, es obligatorio registrar la razón del bloqueo (`blocker_reason`).
+  - Permite adjuntar tanto imágenes (`IMAGE`) como documentos (`DOCUMENT`) por cada tarea.
+  - El `Desarrollador` solo visualiza e interactúa con el tablero y las tareas de los proyectos a los que fue asignado.
+
+#### Mapa de Integración entre Contextos (Context Mapping)
+1. **`IAM` → Todos los contextos (*Open Host Service*):** Todos los contextos validan permisos de ejecución y visibilidad mediante la función centralizada `app_core.user_has_permission(permiso)`.
+2. **`Comercial y Cotizaciones` → `Gestión de Proyectos` (*Customer-Supplier*):** Al firmarse y aceptarse una cotización en `com_quotes`, se habilita la creación del registro en `prj_projects`, transfiriendo los datos base del proyecto y copiando los adjuntos iniciales hacia `prj_project_documents`.
+3. **`Gestión de Proyectos` → `Tablero de Trabajo` (*Published Language*):** El contexto `workboard` verifica la pertenencia del usuario al proyecto mediante la función `app_core.is_project_member(project_id)` antes de permitir la lectura o modificación de tareas.
 
 ---
 
@@ -398,8 +459,9 @@ export class Task extends AggregateRoot<TaskPrimitives> {
 Supabase es un **detalle de infraestructura**. Solo existe dentro de `infrastructure/`.
 
 1. `@supabase/supabase-js` **solo se importa en `infrastructure`**. Nunca en `domain`, `application` ni `presentation`.
-2. El cliente se crea **una vez** en el composition root (`src/app/`) y se **inyecta** en los adaptadores.
-3. Cada repositorio Supabase implementa una interfaz definida en `domain/repositories` (p. ej. `SupabaseTaskRepository implements TaskRepository`).
+2. El cliente se crea **una vez** en el composition root (`src/app/`) apuntando al esquema personalizado **`app_core`** (`db: { schema: "app_core" }`) y se **inyecta** en los adaptadores.
+3. Todas las tablas del sistema viven en el esquema `app_core` con el prefijo de su bounded context (`iam_`, `com_`, `prj_`, `wb_`) y validan permisos/membresía en RLS mediante `app_core.user_has_permission(permiso)` y `app_core.is_project_member(project_id)`.
+4. Cada repositorio Supabase implementa una interfaz definida en `domain/repositories` (p. ej. `SupabaseTaskRepository implements TaskRepository`).
 4. **Mappers obligatorios:** fila de Postgres ⇄ entidad/agregado de dominio. Los tipos generados (`supabase gen types`) **no salen de `infrastructure`**.
 5. La autenticación se expone mediante un puerto (`AuthService`) implementado por un adaptador de Supabase Auth. El dominio y la aplicación no conocen sesiones ni JWT.
 6. **Seguridad:**

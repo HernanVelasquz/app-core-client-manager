@@ -9,7 +9,7 @@ description: >-
 
 # SolidJS Presentation: Atomic Design, MVVM & Tailwind CSS
 
-Use this skill when working in `src/shared/ui/` or `src/modules/<bounded-context>/presentation/`.
+Use this skill when working in `src/shared/ui/` or `src/modules/{iam,commercial,project-management,workboard}/presentation/`.
 
 ## 1. Core Principles & Non-Negotiable Rules
 
@@ -23,10 +23,11 @@ Use this skill when working in `src/shared/ui/` or `src/modules/<bounded-context
 3. **Atomic Design (`screens` instead of `pages`):**
    - The word or folder `pages` is **strictly forbidden**. Always use `screens` (`presentation/screens/<screen-name>/`).
    - Strict upward import hierarchy: `atoms` → `molecules` → `organisms` → `templates` → `screens`. A lower level may never import from a higher level.
-   - Generic, domain-agnostic components go in `src/shared/ui/{atoms,molecules,organisms,templates}`. Bounded-context components go in `src/modules/<bounded-context>/presentation/{atoms,molecules,organisms,templates,screens}`.
-4. **Strict MVVM in Every `screen`:**
+   - Generic, domain-agnostic components go in `src/shared/ui/{atoms,molecules,organisms,templates}`. Bounded-context components go in `src/modules/{iam,commercial,project-management,workboard}/presentation/{atoms,molecules,organisms,templates,screens}`.
+4. **Strict MVVM & Role-Based UI Visibility in Every `screen`:**
    - Only a `screen`'s `viewModel` (`use<Screen>`) is allowed to consume injected use cases. `atoms`, `molecules`, `organisms`, `templates`, and `.view.tsx` files must **never** invoke use cases directly.
    - The UI sends `commands` to use cases and consumes typed primitives (`<Aggregate>Primitives`), never domain entities or Value Objects.
+   - Respect domain visibility rules in presentation screens (e.g., in `project-management`, the `Desarrollador` role only views basic project info and `cover_image_path` without timeline milestones or management documents; in `commercial`, separate quick client lookup from detailed quote history).
 
 ---
 

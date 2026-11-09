@@ -1,70 +1,79 @@
 ---
 name: hexagonal-application-layer
 description: >-
-  Guides the creation of use cases, commands, application ports, and dependency wiring
-  in the composition root following Hexagonal Architecture (Ports & Adapters).
+  Guides the creation of use cases, commands, application ports, Context Mapping
+  integration across the 4 bounded contexts (iam, commercial, project-management,
+  workboard), and dependency wiring in src/app/ following Hexagonal Architecture.
   Use this skill when creating or updating use cases, application commands,
   application ports, or wiring dependencies in src/app/.
 ---
 
-# Hexagonal Application Layer & Commands
+# Hexagonal Application Layer, Commands & Context Mapping
 
-Use this skill when creating or modifying `src/modules/<bounded-context>/application/` or wiring dependencies in `src/app/` (the Composition Root).
+Use this skill when creating or modifying `src/modules/{iam,commercial,project-management,workboard}/application/` or wiring dependencies in `src/app/` (the Composition Root).
 
 ## 1. Core Principles & Non-Negotiable Rules
 
-1. **Dependency Direction:** `application` may ONLY import from `domain` (of the same bounded context) and `@/shared/kernel`. Never import `solid-js`, `@tauri-apps/*`, `@supabase/*`, `infrastructure`, or `presentation`.
+1. **Dependency Direction:** `application` may ONLY import from `domain` (of the same bounded context) and `@/shared/kernel`. Never import `solid-js`, `@tauri-apps/*`, `@supabase/*`, `infrastructure`, `presentation`, or another bounded context directly.
 2. **Commands Only (No DTOs):** Input data transfer objects in the application layer are always called **`commands`** and live in `application/commands/`. The suffix `Dto` and folder `dto/` are strictly forbidden.
 3. **Arrow Functions Only:** Use cases, factories, and helpers must be written as arrow functions (`const myUseCase = (deps) => async (command) => ...`). Never use the `function` keyword.
 4. **No Domain Entities Cross the Application Boundary:**
    - **Inputs:** Use cases receive at most **one** Command made of `readonly` primitives (`string`, `number`, `boolean`) and convert its fields into Domain Value Objects.
-   - **Outputs:** Read use cases return typed primitives (e.g., `readonly TaskPrimitives[]`), never `AggregateRoot` or `Entity` instances.
-5. **Composition Root Wiring:** Dependency injection (binding infrastructure adapters to domain/application ports) happens exclusively in `src/app/`.
+   - **Outputs:** Read use cases return typed primitives (e.g., `readonly QuotePrimitives[]`), never `AggregateRoot` or `Entity` instances.
+5. **Composition Root Wiring:** Dependency injection (binding infrastructure adapters to domain/application ports and orchestrating cross-context workflows) happens exclusively in `src/app/`.
 
 ---
 
-## 2. Layer Isolation Matrix & Directory Structure
+## 2. Context Mapping & Cross-Context Integration Rules
+
+Bounded contexts **never** import directly from one another. Cross-context collaboration follows these 3 Context Mapping patterns:
+
+1. **`iam` → All Contexts (*Open Host Service*):**
+   - All contexts validate execution and visibility permissions (such as `USER_MANAGE` in `iam` or `PROJECT_ASSIGN_TEAM` in `project-management`) through an application permission port or the centralized DB policy function `app_core.user_has_permission(permiso)`.
+   - All user references across `commercial`, `project-management`, and `workboard` use the `iam_profiles` identifier, never `auth.users` directly.
+2. **`commercial` → `project-management` (*Customer-Supplier*):**
+   - Once a `Cotizacion` in `commercial` has both signatures (`dev_signature_path` and `client_signature_path`) and transitions to `ACCEPTED`, it enables creating a `Proyecto` in `project-management` referencing `source_quote_id`, transferring base project data and copying initial quote attachments as `QUOTE_INHERITED` into `prj_project_documents`.
+3. **`project-management` → `workboard` (*Published Language*):**
+   - `workboard` verifies project membership (via port or `app_core.is_project_member(project_id)`) before allowing reading or modifying Kanban tasks (`wb_tasks`).
+
+---
+
+## 3. Layer Isolation Matrix & Directory Structure
 
 | Layer | Responsibility | Allowed Imports | Forbidden Imports |
 |-------|----------------|-----------------|-------------------|
 | `domain` | Entities, Value Objects, Aggregates, Domain Events, Domain Services, Repository interfaces | `domain` (same module), `@/shared/kernel` | `solid-js`, `@tauri-apps/*`, `@supabase/*`, `application`, `infrastructure`, `presentation`, other modules |
 | `application` | Use cases, `commands`, secondary ports, orchestration | `domain` (same module), `@/shared/kernel` | `solid-js`, `@tauri-apps/*`, `@supabase/*`, `infrastructure`, `presentation`, other modules |
-| `infrastructure` | Adapters implementing ports (Supabase, Tauri IPC, secure storage, mappers) | `domain`, `application`, external libraries | `presentation` |
+| `infrastructure` | Adapters implementing ports (Supabase, Tauri IPC, secure storage, mappers) | `domain`, `application`, `@/shared/infrastructure`, external libraries | `presentation` |
 | `presentation` | SolidJS Atomic Design (`atoms`, `molecules`, `organisms`, `templates`, `screens` with MVVM) | `application` (injected use cases & commands), `@/shared/ui`, read `Primitives` | `infrastructure`, domain classes/entities |
 
 ```text
 src/
 ├── app/                              # Composition Root: instantiates adapters and injects them into use cases
 └── modules/
-    └── <bounded-context>/
+    └── {iam,commercial,project-management,workboard}/
         └── application/
             ├── commands/             # <verb>-<object>.command.ts
-            ├── ports/                # Application-level ports (e.g., AuthService, EventBus)
+            ├── ports/                # Application-level ports (e.g., AuthService, PermissionCheckerPort)
             ├── use-cases/            # <verb>-<object>.use-case.ts
             └── index.ts              # Public API of the application layer
 ```
 
 ---
 
-## 3. Step-by-Step Procedures
+## 4. Step-by-Step Procedures
 
 ### Step 1: Define the Command (`application/commands/`)
 
 - File naming: `<verb>-<object>.command.ts` (in `kebab-case`).
-- Type naming: `<Verb><Object>Command` (in `PascalCase`, e.g., `CreateTaskCommand`, `CompleteTaskCommand`).
-- Properties must be `readonly` primitives (`string`, `number`, `boolean`). Do not place validation logic here—validation belongs in Domain Value Objects.
+- Type naming: `<Verb><Object>Command` (in `PascalCase`, e.g., `BlockTaskCommand`, `AcceptQuoteCommand`).
+- Properties must be `readonly` primitives (`string`, `number`, `boolean`, `null`).
 
 ```ts
-// src/modules/tasks/application/commands/create-task.command.ts
-export type CreateTaskCommand = {
-  readonly title: string;
-};
-```
-
-```ts
-// src/modules/tasks/application/commands/complete-task.command.ts
-export type CompleteTaskCommand = {
+// src/modules/workboard/application/commands/block-task.command.ts
+export type BlockTaskCommand = {
   readonly taskId: string;
+  readonly blockerReason: string;
 };
 ```
 
@@ -72,97 +81,43 @@ export type CompleteTaskCommand = {
 
 - File naming: `<verb>-<object>.use-case.ts`.
 - Export a higher-order arrow function that receives `deps` (ports/repositories) and returns an `async` arrow function accepting at most one `Command`.
-- Generate IDs in the domain (`TaskId.random()`), reconstruct Value Objects (`new TaskTitle(command.title)`), invoke domain methods, persist via repository port, and publish domain events if needed (`task.pullDomainEvents()`).
-
-#### Write Use Case Example (Create)
 
 ```ts
-// src/modules/tasks/application/use-cases/create-task.use-case.ts
-import { Task, TaskId, TaskTitle, type TaskRepository } from "@/modules/tasks/domain";
-import type { CreateTaskCommand } from "../commands";
-
-export const createTask =
-  (deps: { readonly tasks: TaskRepository }) =>
-  async (command: CreateTaskCommand): Promise<void> => {
-    const id = TaskId.random();
-    const title = new TaskTitle(command.title);
-    const task = Task.create(id, title);
-
-    await deps.tasks.save(task);
-  };
-```
-
-#### Write Use Case Example (State Transition)
-
-```ts
-// src/modules/tasks/application/use-cases/complete-task.use-case.ts
+// src/modules/workboard/application/use-cases/block-task.use-case.ts
 import {
+  BlockerReason,
   TaskId,
   TaskNotFoundError,
   type TaskRepository,
-} from "@/modules/tasks/domain";
-import type { CompleteTaskCommand } from "../commands";
+} from "@/modules/workboard/domain";
+import type { BlockTaskCommand } from "../commands";
 
-export const completeTask =
+export const blockTask =
   (deps: { readonly tasks: TaskRepository }) =>
-  async (command: CompleteTaskCommand): Promise<void> => {
-    const task = await deps.tasks.search(new TaskId(command.taskId));
+  async (command: BlockTaskCommand): Promise<void> => {
+    const taskId = new TaskId(command.taskId);
+    const reason = new BlockerReason(command.blockerReason);
+
+    const task = await deps.tasks.search(taskId);
     if (task === null) {
       throw new TaskNotFoundError(command.taskId);
     }
 
-    task.complete();
+    task.markAsBlocker(reason);
     await deps.tasks.save(task);
   };
 ```
 
-#### Read Use Case Example (Returning Primitives)
+### Step 3: Export from `application/index.ts` and Wire in `src/app/`
 
-```ts
-// src/modules/tasks/application/use-cases/list-tasks.use-case.ts
-import type { TaskPrimitives, TaskRepository } from "@/modules/tasks/domain";
-
-export const listTasks =
-  (deps: { readonly tasks: TaskRepository }) =>
-  async (): Promise<readonly TaskPrimitives[]> => {
-    const tasks = await deps.tasks.searchAll();
-    return tasks.map((task) => task.toPrimitives());
-  };
-```
-
-### Step 3: Export from `application/index.ts`
-
-```ts
-// src/modules/tasks/application/index.ts
-export type { CompleteTaskCommand, CreateTaskCommand } from "./commands";
-export { completeTask, createTask, listTasks } from "./use-cases";
-```
-
-### Step 4: Wire Dependencies in `src/app/` (Composition Root)
-
-Instantiate infrastructure adapters once in `src/app/` and inject them into the use case factories:
-
-```ts
-// src/app/container.ts
-import { completeTask, createTask, listTasks } from "@/modules/tasks/application";
-import { createSupabaseTaskRepository } from "@/modules/tasks/infrastructure";
-import { supabaseClient } from "./supabase-client";
-
-const taskRepository = createSupabaseTaskRepository({ client: supabaseClient });
-
-export const tasksUseCases = {
-  createTask: createTask({ tasks: taskRepository }),
-  completeTask: completeTask({ tasks: taskRepository }),
-  listTasks: listTasks({ tasks: taskRepository }),
-} as const;
-```
+Expose commands, ports, and use cases in `src/modules/<bounded-context>/application/index.ts`, and wire concrete adapters only inside `src/app/container.ts`.
 
 ---
 
-## 4. Verification Checklist
+## 5. Verification Checklist
 
 - [ ] Are all input types placed in `application/commands/` and named `<Verb><Object>Command` (no `Dto` suffix)?
 - [ ] Does each use case accept at most one command of `readonly` primitives?
 - [ ] Do read use cases return `<Aggregate>Primitives` via `.toPrimitives()` instead of domain objects?
 - [ ] Are all use cases written as curried arrow functions (`(deps) => async (command) => ...`)?
-- [ ] Can the use case run in pure Node with Vitest using an in-memory fake repository (no DOM, Tauri, or network)?
+- [ ] Are cross-context interactions respecting the Context Mapping boundaries without direct imports between bounded contexts?
